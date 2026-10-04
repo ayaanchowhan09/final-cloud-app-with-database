@@ -134,3 +134,87 @@ def enroll(request, course_id):
 
 
 
+
+
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
+from .models import Choice, Question, Submission
+
+
+@login_required
+@require_POST
+def submit(request, course_id):
+    course = get_object_or_404(Course, pk=course_id)
+    enrollment = get_object_or_404(Enrollment, user=request.user, course=course)
+
+    selected_ids = set()
+    for key, value in request.POST.items():
+        if key.startswith('choice_'):
+            try:
+                selected_ids.add(int(value))
+            except (TypeError, ValueError):
+                continue
+
+    choices = Choice.objects.filter(
+        pk__in=selected_ids,
+        question__lesson__course=course,
+    )
+    submission = Submission.objects.create(enrollment=enrollment)
+    submission.choices.set(choices)
+
+    return redirect(
+        'onlinecourse:show_exam_result',
+        course_id=course.pk,
+        submission_id=submission.pk,
+    )
+
+
+@login_required
+def show_exam_result(request, course_id, submission_id):
+    course = get_object_or_404(Course, pk=course_id)
+    submission = get_object_or_404(
+        Submission,
+        pk=submission_id,
+        enrollment__course=course,
+        enrollment__user=request.user,
+    )
+    questions = (
+        Question.objects.filter(lesson__course=course)
+        .select_related('lesson')
+        .prefetch_related('choice_set')
+        .order_by('lesson__order', 'pk')
+    )
+    selected_ids = set(submission.choices.values_list('pk', flat=True))
+
+    question_results = []
+    score = 0
+    max_score = 0
+    for question in questions:
+        choices = list(question.choice_set.all())
+        selected_choices = [choice for choice in choices if choice.pk in selected_ids]
+        correct_choices = [choice for choice in choices if choice.is_correct]
+        is_correct = question.is_get_score([choice.pk for choice in selected_choices])
+        points_earned = question.grade if is_correct else 0
+
+        score += points_earned
+        max_score += question.grade
+        question_results.append({
+            'question': question,
+            'selected_choices': selected_choices,
+            'correct_choices': correct_choices,
+            'is_correct': is_correct,
+            'points_earned': points_earned,
+            'points_possible': question.grade,
+        })
+
+    grade = round((score / max_score) * 100, 2) if max_score else 0
+    context = {
+        'course': course,
+        'submission': submission,
+        'question_results': question_results,
+        'score': score,
+        'max_score': max_score,
+        'grade': grade,
+        'passed': grade > 80,
+    }
+    return render(request, 'onlinecourse/exam_result_bootstrap.html', context)

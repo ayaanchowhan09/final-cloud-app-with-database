@@ -132,3 +132,29 @@ class Enrollment(models.Model):
 #    enrollment = models.ForeignKey(Enrollment, on_delete=models.CASCADE)
 #    choices = models.ManyToManyField(Choice)
 #    Other fields and methods you would like to design
+
+# Question model
+class Question(models.Model):
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE)
+    content = models.TextField()
+    grade = models.IntegerField(default=1)
+
+    def is_get_score(self, selected_ids):
+        correct_ids = set(
+            self.choice_set.filter(is_correct=True).values_list('id', flat=True)
+        )
+        selected_ids = {int(choice_id) for choice_id in selected_ids}
+        return correct_ids == selected_ids
+
+
+# Choice model
+class Choice(models.Model):
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    content = models.TextField()
+    is_correct = models.BooleanField(default=False)
+
+
+# Submission model
+class Submission(models.Model):
+    enrollment = models.ForeignKey(Enrollment, on_delete=models.CASCADE)
+    choices = models.ManyToManyField(Choice)
